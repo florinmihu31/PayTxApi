@@ -1,41 +1,71 @@
 package com.paytx.api.registerpayment;
 
 import multiversx.*;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.paytx.api.multiverxcore.Merchant;
+
 import java.io.IOException;
 import java.math.BigInteger;
+import java.util.HashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 @RestController
 public class RegisterPayment {
+
+    private final Merchant merchant;
+    private final String payTxMethod;
+
+    @Autowired
+    public RegisterPayment(Merchant merchant, 
+            @Value("${multiversx.payTx.method}") String payTxMethod){
+        this.merchant = merchant;
+        this.payTxMethod = payTxMethod;
+    }
+
     @GetMapping("/registerpayment")
     @ResponseBody
-    public String registerPayment(@RequestParam String paymentAmount) throws Exceptions.AddressException, Exceptions.CannotSignTransactionException, Exceptions.CannotSerializeTransactionException, Exceptions.ProxyRequestException, IOException, Exceptions.CannotDeriveKeysException {
+    public HashMap<String, String> registerPayment(@RequestParam BigInteger paymentAmount) throws Exceptions.AddressException, Exceptions.CannotSignTransactionException, Exceptions.CannotSerializeTransactionException, Exceptions.ProxyRequestException, IOException, Exceptions.CannotDeriveKeysException {
         Transaction transaction = new Transaction();
-        String privateKey = "TODO";
-        byte[] privateKeyBytes = privateKey.getBytes();
-        Wallet wallet = new Wallet(privateKeyBytes);
-        Address senderAddress = Address.fromBech32("erd1k5jt6umyca9090xvy9fsjuaunur2qqaac6zrdyqqvwd9jza8uhss7jgred");
-        Account account = new Account(senderAddress);
-        ProxyProvider devnetProvider = new ProxyProvider("https://devnet-gateway.elrond.com");
-
-        account.sync(devnetProvider);
+        Account account = merchant.getAccount();
+        IProvider provider = merchant.getProvider();
+        account.sync(provider);
         transaction.setNonce(account.getNonce());
-        transaction.setValue(new BigInteger(paymentAmount));
-        transaction.setSender(senderAddress);
-        transaction.setReceiver(Address.fromBech32("erd1qqqqqqqqqqqqqpgqknatrzgys8rmknnjxrn0vjue5sc5g4gnjpgsjeknhz"));
+        transaction.setSender(merchant.getAddress());
+        transaction.setReceiver(merchant.getPayTxAddress());
         transaction.setGasPrice(1_000_000_000);
         transaction.setGasLimit(2_000_000);
         transaction.setChainID("D");
-        transaction.sign(wallet);
-
-        String response = transaction.computeHash();
-        System.out.println(transaction.serialize());
-        transaction.send(devnetProvider);
-
+        String paymentId = getRandomPaymentId();
+        transaction.setData(payTxMethod+
+                            "@"+
+                            padEvenlyHex(paymentId) +
+                            "@"+
+                            padEvenlyHex(paymentAmount.toString(16)));
+        transaction.sign(merchant.getWallet());
+        HashMap<String, String> response = new HashMap<>();
+        response.put("paymentId", paymentId);
+        response.put("transactionHash", transaction.computeHash());
+        transaction.send(provider);
         return response;
+    }
+
+    private String padEvenlyHex(String hexString){
+        String result = hexString;
+        if(hexString.length() % 2 != 0){
+            result = "0" + hexString;
+        }
+        return result;
+    }
+
+    private String getRandomPaymentId(){
+        Integer paymentIdInteger = ThreadLocalRandom.current().nextInt();
+        return Integer.toHexString(paymentIdInteger);
     }
 }
