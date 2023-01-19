@@ -50,8 +50,10 @@ public class RegisterPayment {
                             padEvenlyHex(paymentAmount.toString(16)));
         transaction.sign(merchant.getWallet());
         HashMap<String, String> response = new HashMap<>();
-        response.put("paymentId", paymentId);
+        response.put("paymentId", padEvenlyHex(paymentId));
         response.put("transactionHash", transaction.computeHash());
+        response.put("amountHex", padEvenlyHex(paymentAmount.toString(16)));
+        response.put("amount", paymentAmount.toString());
         transaction.send(provider);
         return response;
     }
